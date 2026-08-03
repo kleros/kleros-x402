@@ -1,0 +1,5 @@
+commerce-payments/=lib/commerce-payments/
+kleros-v2/=node_modules/@kleros/kleros-v2-contracts/
+@openzeppelin/contracts/=lib/commerce-payments/lib/spend-permissions/lib/openzeppelin-contracts/contracts/
+solady/=lib/commerce-payments/lib/solady/src/
+forge-std/=lib/commerce-payments/lib/forge-std/src/

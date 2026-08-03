@@ -1,0 +1,10 @@
+{
+  "name": "kleros-x402r",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "PoC: Kleros v2 as dispute layer for x402r escrow-backed payments (KlerosCaptureAuthorizer)",
+  "dependencies": {
+    "@kleros/kleros-v2-contracts": "2.0.0-rc.2"
+  }
+}
