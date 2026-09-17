@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {AuthCaptureEscrow} from "commerce-payments/src/AuthCaptureEscrow.sol";
 import {IArbitratorV2} from "./interfaces/IArbitratorV2.sol";
 import {IArbitrableV2} from "./interfaces/IArbitrableV2.sol";
+import {IDisputeTemplateRegistry} from "./interfaces/IDisputeTemplateRegistry.sol";
 
 /// @title KlerosCaptureAuthorizer
 /// @notice A bespoke x402r `captureAuthorizer` that is simultaneously the escrow
@@ -126,24 +127,32 @@ contract KlerosCaptureAuthorizer is IArbitrableV2 {
     /// @param _arbitratorExtraData Extra data for the arbitrator: court, number of jurors, dispute kit.
     /// @param _disputeWindow How long the payer may dispute after authorization.
     /// @param _arbitrationBuffer Minimum time reserved after the dispute window for arbitration and ruling execution.
-    /// @param _templateId The Kleros dispute template.
     /// @param _refuseToArbitrateCapturesToMerchant Whether ruling 0 is treated as a merchant win (true) or a payer win (false).
+    /// @param _templateRegistry The Kleros dispute template registry.
+    /// @param _templateData The dispute template data.
+    /// @param _templateDataMappings The dispute template data mappings.
     constructor(
         AuthCaptureEscrow _escrow,
         IArbitratorV2 _arbitrator,
         bytes memory _arbitratorExtraData,
         uint256 _disputeWindow,
         uint256 _arbitrationBuffer,
-        uint256 _templateId,
-        bool _refuseToArbitrateCapturesToMerchant
+        bool _refuseToArbitrateCapturesToMerchant,
+        IDisputeTemplateRegistry _templateRegistry,
+        string memory _templateData,
+        string memory _templateDataMappings
     ) {
         escrow = _escrow;
         arbitrator = _arbitrator;
         arbitratorExtraData = _arbitratorExtraData;
         disputeWindow = _disputeWindow;
         arbitrationBuffer = _arbitrationBuffer;
-        templateId = _templateId;
         refuseToArbitrateCapturesToMerchant = _refuseToArbitrateCapturesToMerchant;
+        templateId = _templateRegistry.setDisputeTemplate(
+            "KlerosCaptureAuthorizer",
+            _templateData,
+            _templateDataMappings
+        );
     }
 
     // ************************************* //

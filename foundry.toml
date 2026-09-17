@@ -5,3 +5,6 @@ test = "test"
 libs = ["lib"]
 solc = "0.8.28"
 evm_version = "cancun"
+
+# DeployOperator.s.sol reads the dispute template files.
+fs_permissions = [{ access = "read", path = "./template" }]

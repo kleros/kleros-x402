@@ -9,6 +9,7 @@ import {MockERC3009Token} from "commerce-payments/test/mocks/MockERC3009Token.so
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IArbitratorV2} from "../src/interfaces/IArbitratorV2.sol";
 import {IArbitrableV2} from "../src/interfaces/IArbitrableV2.sol";
+import {IDisputeTemplateRegistry} from "../src/interfaces/IDisputeTemplateRegistry.sol";
 
 import {KlerosCaptureAuthorizer} from "../src/KlerosCaptureAuthorizer.sol";
 
@@ -63,6 +64,31 @@ contract StubArbitrator is IArbitratorV2 {
     ) external {
         rulings[_disputeID] = _ruling;
         _arbitrable.rule(_disputeID, _ruling);
+    }
+}
+
+/// @dev Minimal registry: stores templates and hands out sequential ids.
+contract MockTemplateRegistry is IDisputeTemplateRegistry {
+    uint256 public templateCount;
+    mapping(uint256 templateId => string) public templateTags;
+    mapping(uint256 templateId => string) public templateData;
+    mapping(uint256 templateId => string) public templateDataMappings;
+
+    function setDisputeTemplate(
+        string memory _templateTag,
+        string memory _templateData,
+        string memory _templateDataMappings
+    ) external returns (uint256 templateId) {
+        templateId = templateCount++;
+        templateTags[templateId] = _templateTag;
+        templateData[templateId] = _templateData;
+        templateDataMappings[templateId] = _templateDataMappings;
+        emit DisputeTemplate(
+            templateId,
+            _templateTag,
+            _templateData,
+            _templateDataMappings
+        );
     }
 }
 
@@ -131,6 +157,8 @@ contract KlerosCaptureAuthorizerTest is Test {
     uint256 constant RULING_REFUSED = 0;
     uint256 constant RULING_PAYER = 1;
     uint256 constant RULING_MERCHANT = 2;
+    string constant TEMPLATE_DATA = "{\"title\": \"test template\"}";
+    string constant TEMPLATE_MAPPINGS = "[]";
 
     bytes32 constant RECEIVE_WITH_AUTHORIZATION_TYPEHASH =
         keccak256(
@@ -141,6 +169,7 @@ contract KlerosCaptureAuthorizerTest is Test {
     MockERC3009Token token;
     ERC3009PaymentCollector collector;
     StubArbitrator arbitrator;
+    MockTemplateRegistry templateRegistry;
     KlerosCaptureAuthorizer ca;
 
     uint256 payerPk = 0xA11CE;
@@ -156,14 +185,17 @@ contract KlerosCaptureAuthorizerTest is Test {
             0xcA11bde05977b3631167028862bE2a173976CA11
         );
         arbitrator = new StubArbitrator(ARBITRATION_COST);
+        templateRegistry = new MockTemplateRegistry();
         ca = new KlerosCaptureAuthorizer({
             _escrow: escrow,
             _arbitrator: arbitrator,
             _arbitratorExtraData: "",
             _disputeWindow: DISPUTE_WINDOW,
             _arbitrationBuffer: ARBITRATION_BUFFER,
-            _templateId: 0,
-            _refuseToArbitrateCapturesToMerchant: true
+            _refuseToArbitrateCapturesToMerchant: true,
+            _templateRegistry: templateRegistry,
+            _templateData: TEMPLATE_DATA,
+            _templateDataMappings: TEMPLATE_MAPPINGS
         });
 
         payer = vm.addr(payerPk);
@@ -275,6 +307,19 @@ contract KlerosCaptureAuthorizerTest is Test {
         AuthCaptureEscrow.PaymentInfo memory paymentInfo
     ) internal view returns (KlerosCaptureAuthorizer.Status status) {
         (status, , , , , , ) = ca.payments(escrow.getHash(paymentInfo));
+    }
+
+    // ************************************* //
+    // *            constructor            * //
+    // ************************************* //
+
+    /// @dev The constructor registers the template once and keeps the id the registry returned.
+    function test_constructor_registersTemplate() public view {
+        assertEq(ca.templateId(), 0, "first template registered by the mock");
+        assertEq(templateRegistry.templateCount(), 1);
+        assertEq(templateRegistry.templateTags(0), "KlerosCaptureAuthorizer");
+        assertEq(templateRegistry.templateData(0), TEMPLATE_DATA);
+        assertEq(templateRegistry.templateDataMappings(0), TEMPLATE_MAPPINGS);
     }
 
     // ************************************* //
@@ -1228,8 +1273,10 @@ contract KlerosCaptureAuthorizerTest is Test {
             _arbitratorExtraData: "",
             _disputeWindow: DISPUTE_WINDOW,
             _arbitrationBuffer: ARBITRATION_BUFFER,
-            _templateId: 0,
-            _refuseToArbitrateCapturesToMerchant: false
+            _refuseToArbitrateCapturesToMerchant: false,
+            _templateRegistry: templateRegistry,
+            _templateData: TEMPLATE_DATA,
+            _templateDataMappings: TEMPLATE_MAPPINGS
         });
 
         AuthCaptureEscrow.PaymentInfo memory paymentInfo = _authorize();
