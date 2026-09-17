@@ -67,7 +67,7 @@ contract StubArbitrator is IArbitratorV2 {
 }
 
 /// @dev Contract payer accepting any signature (ERC-1271) but rejecting ETH: reaches the
-///      RefundTransferFailed branch of dispute().
+///      ArbitrationFeeRefundFailed branch of dispute().
 contract RejectingPayer {
     function isValidSignature(
         bytes32,
@@ -82,6 +82,43 @@ contract RejectingPayer {
         uint120 _amount
     ) external payable {
         _ca.dispute{value: msg.value}(_paymentHash, _amount);
+    }
+}
+
+/// @dev Contract payer that re-enters the operator from the arbitration-fee refund hook and swallows
+///      the failures, so the outer call proceeds and the state after it can be inspected.
+contract ReentrantPayer {
+    KlerosCaptureAuthorizer public ca;
+    bytes32 public paymentHash;
+    uint256 public failures;
+
+    function isValidSignature(
+        bytes32,
+        bytes calldata
+    ) external pure returns (bytes4) {
+        return 0x1626ba7e; // ERC-1271 magic value.
+    }
+
+    function openDispute(
+        KlerosCaptureAuthorizer _ca,
+        bytes32 _paymentHash,
+        uint120 _amount
+    ) external payable returns (uint256) {
+        ca = _ca;
+        paymentHash = _paymentHash;
+        return _ca.dispute{value: msg.value}(_paymentHash, _amount);
+    }
+
+    receive() external payable {
+        try ca.dispute(paymentHash, 1) {} catch {
+            failures++;
+        }
+        try ca.captureIfUnchallenged(paymentHash) {} catch {
+            failures++;
+        }
+        try ca.executeRuling(paymentHash) {} catch {
+            failures++;
+        }
     }
 }
 
@@ -353,6 +390,21 @@ contract KlerosCaptureAuthorizerTest is Test {
         ca.authorize(paymentInfo, AMOUNT, address(collector), signature);
     }
 
+    /// @dev The keeper takes the hash and the window end from this event: assert its fields.
+    function test_authorize_emitsPaymentAuthorized() public {
+        AuthCaptureEscrow.PaymentInfo memory paymentInfo = _paymentInfo();
+        bytes32 paymentHash = _hash(paymentInfo);
+        bytes memory signature = _sign(paymentInfo);
+
+        vm.expectEmit(true, true, true, true, address(ca));
+        emit KlerosCaptureAuthorizer.PaymentAuthorized(
+            paymentHash,
+            AMOUNT,
+            uint48(block.timestamp + DISPUTE_WINDOW)
+        );
+        ca.authorize(paymentInfo, AMOUNT, address(collector), signature);
+    }
+
     // ************************************* //
     // *      captureIfUnchallenged        * //
     // ************************************* //
@@ -568,6 +620,23 @@ contract KlerosCaptureAuthorizerTest is Test {
                 KlerosCaptureAuthorizer.Status.Authorized,
                 KlerosCaptureAuthorizer.Status.None
             )
+        );
+        ca.captureIfUnchallenged(paymentHash);
+    }
+
+    /// @dev The event carries the merchant's share, net of any concession.
+    function test_captureIfUnchallenged_emitsCapturedUnchallenged() public {
+        AuthCaptureEscrow.PaymentInfo memory paymentInfo = _authorize();
+        bytes32 paymentHash = _hash(paymentInfo);
+        uint120 conceded = 40e6;
+        vm.prank(merchant);
+        ca.merchantRefund(paymentHash, conceded);
+        vm.warp(block.timestamp + DISPUTE_WINDOW);
+
+        vm.expectEmit(true, true, true, true, address(ca));
+        emit KlerosCaptureAuthorizer.CapturedUnchallenged(
+            paymentHash,
+            AMOUNT - conceded
         );
         ca.captureIfUnchallenged(paymentHash);
     }
@@ -954,12 +1023,43 @@ contract KlerosCaptureAuthorizerTest is Test {
         bytes32 paymentHash = _hash(paymentInfo);
 
         vm.deal(address(this), 1 ether);
-        vm.expectRevert(KlerosCaptureAuthorizer.RefundTransferFailed.selector);
+        vm.expectRevert(KlerosCaptureAuthorizer.ArbitrationFeeRefundFailed.selector);
         rejectingPayer.openDispute{value: ARBITRATION_COST + 0.1 ether}(
             ca,
             paymentHash,
             AMOUNT
         );
+    }
+
+    /// @dev The fee refund is the only external call to an untrusted address. State is final before it,
+    ///      so a payer re-entering from the refund hook can neither open a second dispute nor settle.
+    function test_dispute_reentrancyFromFeeRefundIsHarmless() public {
+        ReentrantPayer reentrantPayer = new ReentrantPayer();
+        token.mint(address(reentrantPayer), AMOUNT);
+
+        AuthCaptureEscrow.PaymentInfo memory paymentInfo = _paymentInfo();
+        paymentInfo.payer = address(reentrantPayer);
+        ca.authorize(paymentInfo, AMOUNT, address(collector), "");
+        bytes32 paymentHash = _hash(paymentInfo);
+
+        vm.deal(address(this), 1 ether);
+        uint256 disputeID = reentrantPayer.openDispute{
+            value: ARBITRATION_COST + 0.1 ether
+        }(ca, paymentHash, AMOUNT);
+
+        assertEq(reentrantPayer.failures(), 3, "every re-entry must revert");
+        assertEq(
+            address(reentrantPayer).balance,
+            0.1 ether,
+            "the overpayment must be refunded exactly once"
+        );
+        assertEq(disputeID, 1);
+        assertEq(arbitrator.nextDisputeID(), 2, "exactly one dispute created");
+        assertEq(
+            uint256(_status(paymentInfo)),
+            uint256(KlerosCaptureAuthorizer.Status.Disputed)
+        );
+        assertEq(ca.getCaseData(disputeID).paymentHash, paymentHash);
     }
 
     // ************************************* //
@@ -981,50 +1081,6 @@ contract KlerosCaptureAuthorizerTest is Test {
 
         vm.expectRevert(KlerosCaptureAuthorizer.ArbitratorOnly.selector);
         ca.rule(disputeID, RULING_PAYER);
-    }
-
-    /// @dev A ruling the contract cannot act on must be ignored, never reverted: a revert would bubble into
-    ///      the arbitrator's own transaction and leave the dispute unruled forever.
-    function test_rule_ignoresInvalidRuling() public {
-        AuthCaptureEscrow.PaymentInfo memory paymentInfo = _authorize();
-        uint256 disputeID = _dispute(paymentInfo, AMOUNT);
-
-        vm.expectEmit(true, true, true, true, address(ca));
-        emit KlerosCaptureAuthorizer.RulingIgnored(disputeID, 3);
-        arbitrator.giveRuling(ca, disputeID, 3);
-
-        assertEq(
-            uint256(_status(paymentInfo)),
-            uint256(KlerosCaptureAuthorizer.Status.Disputed),
-            "state must be untouched"
-        );
-    }
-
-    function test_rule_ignoresUnknownDispute() public {
-        vm.expectEmit(true, true, true, true, address(ca));
-        emit KlerosCaptureAuthorizer.RulingIgnored(999, RULING_PAYER);
-        arbitrator.giveRuling(ca, 999, RULING_PAYER);
-    }
-
-    /// @dev A second ruling for a dispute that already settled must be ignored, and change nothing.
-    function test_rule_ignoresRepeatedRuling() public {
-        AuthCaptureEscrow.PaymentInfo memory paymentInfo = _authorize();
-        uint256 disputeID = _dispute(paymentInfo, AMOUNT);
-        arbitrator.giveRuling(ca, disputeID, RULING_PAYER);
-
-        vm.expectEmit(true, true, true, true, address(ca));
-        emit KlerosCaptureAuthorizer.RulingIgnored(disputeID, RULING_MERCHANT);
-        arbitrator.giveRuling(ca, disputeID, RULING_MERCHANT);
-
-        assertEq(
-            token.balanceOf(payer),
-            PAYER_BALANCE,
-            "the first ruling must stand"
-        );
-        assertEq(
-            uint256(_status(paymentInfo)),
-            uint256(KlerosCaptureAuthorizer.Status.Voided)
-        );
     }
 
     /// @dev The common case settles inside the arbitrator's transaction: no second call needed, and the
@@ -1519,6 +1575,16 @@ contract KlerosCaptureAuthorizerTest is Test {
             AMOUNT - 30e6,
             "the concession should shrink the disputable amount"
         );
+    }
+
+    function test_merchantRefund_emitsMerchantRefunded() public {
+        AuthCaptureEscrow.PaymentInfo memory paymentInfo = _authorize();
+        bytes32 paymentHash = _hash(paymentInfo);
+
+        vm.expectEmit(true, true, true, true, address(ca));
+        emit KlerosCaptureAuthorizer.MerchantRefunded(paymentHash, 40e6);
+        vm.prank(merchant);
+        ca.merchantRefund(paymentHash, 40e6);
     }
 
     // ************************************* //

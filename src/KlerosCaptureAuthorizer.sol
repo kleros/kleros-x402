@@ -90,6 +90,7 @@ contract KlerosCaptureAuthorizer is IArbitrableV2 {
     event CapturedUnchallenged(bytes32 indexed _paymentHash, uint120 _amount);
 
     /// @notice Emitted when the payer opens a dispute.
+    /// @dev Kept alongside the Kleros `DisputeRequest` event as convenience to keep the per-payment event stream filterable by hash.
     /// @param _paymentHash The escrow hash of the payment.
     /// @param _disputeID The dispute ID on the arbitrator side.
     /// @param _disputedAmount The amount the payer disputes.
@@ -98,12 +99,6 @@ contract KlerosCaptureAuthorizer is IArbitrableV2 {
         uint256 indexed _disputeID,
         uint120 _disputedAmount
     );
-
-    /// @notice Emitted when the arbitrator delivers a ruling this contract cannot act on: an unknown dispute, an
-    ///         out-of-range ruling, or a payment not awaiting one. Emitted instead of reverting, see `rule`.
-    /// @param _disputeID The dispute ID on the arbitrator side.
-    /// @param _ruling The ruling that was ignored.
-    event RulingIgnored(uint256 indexed _disputeID, uint256 _ruling);
 
     /// @notice Emitted when a ruling was recorded but settling it in the same transaction failed.
     ///         The payment stays `Resolved` and `executeRuling` remains open to anyone.
@@ -168,10 +163,10 @@ contract KlerosCaptureAuthorizer is IArbitrableV2 {
         bytes calldata _collectorData
     ) external {
         require(_paymentInfo.operator == address(this), OperatorMismatch());
-        // Reject under-provisioned payments: the whole dispute lifecycle must fit before capture closes.
-        // The buffer is best-effort, not a hard guarantee: size it so most disputes, appeals included,
-        // conclude in time. If arbitration still outlasts the authorization, capture becomes impossible
-        // and the payer can reclaim the escrowed funds after expiry.
+        // Via our SDK, authorizationExpiry will have the max value, basically meaning no expiry exists.
+        // However, anyone can put our contract address as the operator, so as a defense mechanism, we reject short authorization windows.
+        // The buffer is best-effort, not a hard guarantee. If arbitration still outlasts the authorization,
+        // capture becomes impossible and the payer can reclaim the escrowed funds after expiry.
         require(
             _paymentInfo.authorizationExpiry >=
                 block.timestamp + disputeWindow + arbitrationBuffer,
@@ -236,7 +231,7 @@ contract KlerosCaptureAuthorizer is IArbitrableV2 {
         }
     }
 
-    /// @notice Opens a Kleros dispute over the claimed refund. Payer-only and only while the dispute window is open.
+    /// @notice Opens a dispute over the specified amount. Payer-only and only while the dispute window is open.
     /// @dev The payer funds the arbitration cost via msg.value; any overpayment is refunded.
     /// @param _paymentHash The escrow hash of the payment, as returned by `escrow.getHash`.
     /// @param _disputedAmount The amount the payer claims back; anything above `maxDisputable()` is clamped to it.
@@ -259,16 +254,16 @@ contract KlerosCaptureAuthorizer is IArbitrableV2 {
             block.timestamp < payment.disputeWindowEnd,
             DisputeWindowClosed()
         );
-        uint120 maxDisputedAmount = payment.authorizedAmount -
+        uint120 maxDisputableAmount = payment.authorizedAmount -
             payment.lockedRefundAmount;
         require(
             _disputedAmount > 0,
-            InvalidAmount(_disputedAmount, maxDisputedAmount)
+            InvalidAmount(_disputedAmount, maxDisputableAmount)
         );
         // Clamp instead of reverting: the excess is already locked for the payer, so a merchant raising
         // the concession can never invalidate an in-flight dispute by front-running it.
-        uint120 disputedAmount = _disputedAmount > maxDisputedAmount
-            ? maxDisputedAmount
+        uint120 disputedAmount = _disputedAmount > maxDisputableAmount
+            ? maxDisputableAmount
             : _disputedAmount;
 
         uint256 cost = arbitrator.arbitrationCost(arbitratorExtraData);
@@ -285,13 +280,12 @@ contract KlerosCaptureAuthorizer is IArbitrableV2 {
         disputeToPayment[disputeID] = _paymentHash;
 
         emit DisputeOpened(_paymentHash, disputeID, disputedAmount);
-        // The deployed Court v2 indexers consume the five-field DisputeRequest. The court dispute ID doubles
-        // as the external ID so Court UI evidence submissions key on the same number.
+        // The court dispute ID doubles as the external ID so Court UI evidence submissions key on the same number.
         emit DisputeRequest(arbitrator, disputeID, disputeID, templateId, "");
 
         // The remainder is not contested: no ruling can send it anywhere but the merchant, so
         // capture it right away instead of making the merchant wait out the arbitration.
-        uint120 remainder = maxDisputedAmount - disputedAmount;
+        uint120 remainder = maxDisputableAmount - disputedAmount;
         if (remainder > 0) {
             escrow.capture(
                 paymentInfo,
@@ -303,15 +297,15 @@ contract KlerosCaptureAuthorizer is IArbitrableV2 {
 
         if (msg.value > cost) {
             (bool success, ) = msg.sender.call{value: msg.value - cost}("");
-            require(success, RefundTransferFailed());
+            require(success, ArbitrationFeeRefundFailed());
         }
     }
 
     /// @notice Give a ruling for a dispute. Only callable by the arbitrator.
     /// @dev Records the ruling, then tries to settle it in the same transaction. Past the caller check this
     ///      function never reverts: the arbitrator calls it with no try/catch right after marking the dispute
-    ///      ruled, so a revert here would leave that dispute unruled forever. An unexpected ruling or state is
-    ///      emitted and ignored; a failed settlement is emitted and left to the permissionless `executeRuling`.
+    ///      ruled, so a revert here would leave that dispute unruled forever. A failed settlement is emitted and
+    ///      left to the permissionless `executeRuling`.
     /// @param _disputeID The identifier of the dispute in the arbitrator contract.
     /// @param _ruling Ruling given by the arbitrator.
     function rule(uint256 _disputeID, uint256 _ruling) external override {
@@ -319,11 +313,6 @@ contract KlerosCaptureAuthorizer is IArbitrableV2 {
 
         bytes32 paymentHash = disputeToPayment[_disputeID];
         Payment storage payment = payments[paymentHash];
-        if (_ruling > RULING_OPTIONS || payment.status != Status.Disputed) {
-            emit RulingIgnored(_disputeID, _ruling);
-            return;
-        }
-
         payment.status = Status.Resolved;
         payment.ruling = _ruling;
         emit Ruling(arbitrator, _disputeID, _ruling);
@@ -516,7 +505,7 @@ contract KlerosCaptureAuthorizer is IArbitrableV2 {
     error InvalidAmount(uint120 _requested, uint120 _max);
     error RefundNotIncreased(uint120 _current, uint120 _requested);
     error InsufficientArbitrationFee(uint256 _sent, uint256 _required);
-    error RefundTransferFailed();
+    error ArbitrationFeeRefundFailed();
     error UnknownDispute(uint256 _disputeID);
     error ChargeDisabled();
 }
