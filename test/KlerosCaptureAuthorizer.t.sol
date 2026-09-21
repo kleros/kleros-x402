@@ -107,7 +107,7 @@ contract RejectingPayer {
         bytes32 _paymentHash,
         uint120 _amount
     ) external payable {
-        _ca.dispute{value: msg.value}(_paymentHash, _amount);
+        _ca.dispute{value: msg.value}(_paymentHash, _amount, "");
     }
 }
 
@@ -132,11 +132,14 @@ contract ReentrantPayer {
     ) external payable returns (uint256) {
         ca = _ca;
         paymentHash = _paymentHash;
-        return _ca.dispute{value: msg.value}(_paymentHash, _amount);
+        return _ca.dispute{value: msg.value}(_paymentHash, _amount, "");
     }
 
     receive() external payable {
-        try ca.dispute(paymentHash, 1) {} catch {
+        try ca.dispute(paymentHash, 1, "") {} catch {
+            failures++;
+        }
+        try ca.payerAccept(paymentHash) {} catch {
             failures++;
         }
         try ca.captureIfUnchallenged(paymentHash) {} catch {
@@ -157,8 +160,10 @@ contract KlerosCaptureAuthorizerTest is Test {
     uint256 constant RULING_REFUSED = 0;
     uint256 constant RULING_PAYER = 1;
     uint256 constant RULING_MERCHANT = 2;
-    string constant TEMPLATE_DATA = "{\"title\": \"test template\"}";
+    string constant TEMPLATE_DATA = '{"title": "test template"}';
     string constant TEMPLATE_MAPPINGS = "[]";
+    string constant AGREEMENT_URI =
+        "/ipfs/bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi/agreement.json";
 
     bytes32 constant RECEIVE_WITH_AUTHORIZATION_TYPEHASH =
         keccak256(
@@ -291,7 +296,8 @@ contract KlerosCaptureAuthorizerTest is Test {
         vm.prank(payer);
         disputeID = ca.dispute{value: ARBITRATION_COST}(
             paymentHash,
-            disputedAmount
+            disputedAmount,
+            AGREEMENT_URI
         );
     }
 
@@ -306,7 +312,7 @@ contract KlerosCaptureAuthorizerTest is Test {
     function _status(
         AuthCaptureEscrow.PaymentInfo memory paymentInfo
     ) internal view returns (KlerosCaptureAuthorizer.Status status) {
-        (status, , , , , , ) = ca.payments(escrow.getHash(paymentInfo));
+        (status, , , , , , , ) = ca.payments(escrow.getHash(paymentInfo));
     }
 
     // ************************************* //
@@ -687,6 +693,121 @@ contract KlerosCaptureAuthorizerTest is Test {
     }
 
     // ************************************* //
+    // *           payerAccept             * //
+    // ************************************* //
+
+    function test_payerAccept_capturesInsideWindow() public {
+        AuthCaptureEscrow.PaymentInfo memory paymentInfo = _authorize();
+        bytes32 paymentHash = _hash(paymentInfo);
+
+        vm.prank(payer);
+        ca.payerAccept(paymentHash);
+
+        assertEq(token.balanceOf(merchant), AMOUNT, "merchant not paid");
+        assertEq(
+            uint256(_status(paymentInfo)),
+            uint256(KlerosCaptureAuthorizer.Status.Captured)
+        );
+
+        // Accepting waives the right to dispute.
+        vm.deal(payer, 1 ether);
+        vm.prank(payer);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                KlerosCaptureAuthorizer.PaymentNotInState.selector,
+                KlerosCaptureAuthorizer.Status.Authorized,
+                KlerosCaptureAuthorizer.Status.Captured
+            )
+        );
+        ca.dispute{value: ARBITRATION_COST}(paymentHash, AMOUNT, AGREEMENT_URI);
+    }
+
+    function test_payerAccept_paysOutConcession() public {
+        AuthCaptureEscrow.PaymentInfo memory paymentInfo = _authorize();
+        bytes32 paymentHash = _hash(paymentInfo);
+        uint120 conceded = 40e6;
+        vm.prank(merchant);
+        ca.merchantRefund(paymentHash, conceded);
+
+        vm.prank(payer);
+        ca.payerAccept(paymentHash);
+
+        assertEq(
+            token.balanceOf(payer),
+            PAYER_BALANCE - AMOUNT + conceded,
+            "payer should get the concession"
+        );
+        assertEq(
+            token.balanceOf(merchant),
+            AMOUNT - conceded,
+            "merchant should keep the remainder"
+        );
+        assertEq(
+            uint256(_status(paymentInfo)),
+            uint256(KlerosCaptureAuthorizer.Status.Captured)
+        );
+    }
+
+    /// @dev No time check: after the window anyone can capture anyway, so the payer may as well.
+    function test_payerAccept_worksAfterWindow() public {
+        AuthCaptureEscrow.PaymentInfo memory paymentInfo = _authorize();
+        bytes32 paymentHash = _hash(paymentInfo);
+        vm.warp(block.timestamp + DISPUTE_WINDOW + 1);
+
+        vm.prank(payer);
+        ca.payerAccept(paymentHash);
+
+        assertEq(token.balanceOf(merchant), AMOUNT, "merchant not paid");
+    }
+
+    function test_payerAccept_emitsPayerAccepted() public {
+        AuthCaptureEscrow.PaymentInfo memory paymentInfo = _authorize();
+        bytes32 paymentHash = _hash(paymentInfo);
+        uint120 conceded = 40e6;
+        vm.prank(merchant);
+        ca.merchantRefund(paymentHash, conceded);
+
+        vm.prank(payer);
+        vm.expectEmit(true, true, true, true, address(ca));
+        emit KlerosCaptureAuthorizer.PayerAccepted(
+            paymentHash,
+            AMOUNT - conceded
+        );
+        ca.payerAccept(paymentHash);
+    }
+
+    function test_payerAccept_revert_payerOnly() public {
+        AuthCaptureEscrow.PaymentInfo memory paymentInfo = _authorize();
+        bytes32 paymentHash = _hash(paymentInfo);
+
+        vm.prank(merchant);
+        vm.expectRevert(KlerosCaptureAuthorizer.PayerOnly.selector);
+        ca.payerAccept(paymentHash);
+    }
+
+    function test_payerAccept_revert_unknownPayment() public {
+        vm.prank(payer);
+        vm.expectRevert(KlerosCaptureAuthorizer.PayerOnly.selector);
+        ca.payerAccept(keccak256("unknown"));
+    }
+
+    function test_payerAccept_revert_notAuthorized() public {
+        AuthCaptureEscrow.PaymentInfo memory paymentInfo = _authorize();
+        bytes32 paymentHash = _hash(paymentInfo);
+        _dispute(paymentInfo, AMOUNT);
+
+        vm.prank(payer);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                KlerosCaptureAuthorizer.PaymentNotInState.selector,
+                KlerosCaptureAuthorizer.Status.Authorized,
+                KlerosCaptureAuthorizer.Status.Disputed
+            )
+        );
+        ca.payerAccept(paymentHash);
+    }
+
+    // ************************************* //
     // *             dispute               * //
     // ************************************* //
 
@@ -768,7 +889,11 @@ contract KlerosCaptureAuthorizerTest is Test {
 
         vm.deal(payer, 1 ether);
         vm.prank(payer);
-        ca.dispute{value: ARBITRATION_COST + 0.5 ether}(paymentHash, AMOUNT);
+        ca.dispute{value: ARBITRATION_COST + 0.5 ether}(
+            paymentHash,
+            AMOUNT,
+            AGREEMENT_URI
+        );
 
         assertEq(
             payer.balance,
@@ -901,9 +1026,13 @@ contract KlerosCaptureAuthorizerTest is Test {
 
         vm.deal(payer, 1 ether);
         vm.prank(payer);
-        ca.dispute{value: ARBITRATION_COST + 0.5 ether}(paymentHash, AMOUNT);
+        ca.dispute{value: ARBITRATION_COST + 0.5 ether}(
+            paymentHash,
+            AMOUNT,
+            AGREEMENT_URI
+        );
 
-        (, , , uint120 disputedAmount, , , ) = ca.payments(paymentHash);
+        (, , , uint120 disputedAmount, , , , ) = ca.payments(paymentHash);
         assertEq(
             disputedAmount,
             AMOUNT - conceded,
@@ -932,7 +1061,7 @@ contract KlerosCaptureAuthorizerTest is Test {
         emit KlerosCaptureAuthorizer.DisputeOpened(paymentHash, 1, AMOUNT);
         vm.expectEmit(true, true, true, true, address(ca));
         emit IArbitrableV2.DisputeRequest(arbitrator, 1, 1, 0, "");
-        ca.dispute{value: ARBITRATION_COST}(paymentHash, AMOUNT);
+        ca.dispute{value: ARBITRATION_COST}(paymentHash, AMOUNT, AGREEMENT_URI);
     }
 
     function test_dispute_revert_payerOnly() public {
@@ -940,7 +1069,7 @@ contract KlerosCaptureAuthorizerTest is Test {
         bytes32 paymentHash = _hash(paymentInfo);
 
         vm.expectRevert(KlerosCaptureAuthorizer.PayerOnly.selector);
-        ca.dispute(paymentHash, AMOUNT);
+        ca.dispute(paymentHash, AMOUNT, AGREEMENT_URI);
     }
 
     /// @dev The dispute window is [authorize, end): disputing exactly at the end must fail.
@@ -951,7 +1080,7 @@ contract KlerosCaptureAuthorizerTest is Test {
         vm.warp(block.timestamp + DISPUTE_WINDOW);
         vm.prank(payer);
         vm.expectRevert(KlerosCaptureAuthorizer.DisputeWindowClosed.selector);
-        ca.dispute(paymentHash, AMOUNT);
+        ca.dispute(paymentHash, AMOUNT, AGREEMENT_URI);
     }
 
     function test_dispute_revert_zeroDisputedAmount() public {
@@ -966,7 +1095,7 @@ contract KlerosCaptureAuthorizerTest is Test {
                 AMOUNT
             )
         );
-        ca.dispute(paymentHash, 0);
+        ca.dispute(paymentHash, 0, AGREEMENT_URI);
     }
 
     /// @dev Claims above the authorized amount are clamped, not rejected: a too-large claim
@@ -977,9 +1106,13 @@ contract KlerosCaptureAuthorizerTest is Test {
 
         vm.deal(payer, 1 ether);
         vm.prank(payer);
-        ca.dispute{value: ARBITRATION_COST}(paymentHash, AMOUNT + 1);
+        ca.dispute{value: ARBITRATION_COST}(
+            paymentHash,
+            AMOUNT + 1,
+            AGREEMENT_URI
+        );
 
-        (, , , uint120 disputedAmount, , , ) = ca.payments(paymentHash);
+        (, , , uint120 disputedAmount, , , , ) = ca.payments(paymentHash);
         assertEq(
             disputedAmount,
             AMOUNT,
@@ -1001,7 +1134,7 @@ contract KlerosCaptureAuthorizerTest is Test {
         ca.merchantRefund(paymentHash, conceded);
 
         uint256 disputeID = _dispute(paymentInfo, AMOUNT);
-        (, , , uint120 disputedAmount, , , ) = ca.payments(paymentHash);
+        (, , , uint120 disputedAmount, , , , ) = ca.payments(paymentHash);
         assertEq(
             disputedAmount,
             AMOUNT - conceded,
@@ -1031,7 +1164,11 @@ contract KlerosCaptureAuthorizerTest is Test {
                 ARBITRATION_COST
             )
         );
-        ca.dispute{value: ARBITRATION_COST - 1}(paymentHash, AMOUNT);
+        ca.dispute{value: ARBITRATION_COST - 1}(
+            paymentHash,
+            AMOUNT,
+            AGREEMENT_URI
+        );
     }
 
     function test_dispute_revert_alreadyDisputed() public {
@@ -1047,14 +1184,14 @@ contract KlerosCaptureAuthorizerTest is Test {
                 KlerosCaptureAuthorizer.Status.Disputed
             )
         );
-        ca.dispute(paymentHash, AMOUNT);
+        ca.dispute(paymentHash, AMOUNT, AGREEMENT_URI);
     }
 
     /// @dev A hash nobody authorized has no stored payer, so nobody can dispute it.
     function test_dispute_revert_unknownPayment() public {
         vm.prank(payer);
         vm.expectRevert(KlerosCaptureAuthorizer.PayerOnly.selector);
-        ca.dispute(keccak256("unknown"), AMOUNT);
+        ca.dispute(keccak256("unknown"), AMOUNT, AGREEMENT_URI);
     }
 
     function test_dispute_revert_refundTransferFailed() public {
@@ -1068,7 +1205,9 @@ contract KlerosCaptureAuthorizerTest is Test {
         bytes32 paymentHash = _hash(paymentInfo);
 
         vm.deal(address(this), 1 ether);
-        vm.expectRevert(KlerosCaptureAuthorizer.ArbitrationFeeRefundFailed.selector);
+        vm.expectRevert(
+            KlerosCaptureAuthorizer.ArbitrationFeeRefundFailed.selector
+        );
         rejectingPayer.openDispute{value: ARBITRATION_COST + 0.1 ether}(
             ca,
             paymentHash,
@@ -1078,6 +1217,36 @@ contract KlerosCaptureAuthorizerTest is Test {
 
     /// @dev The fee refund is the only external call to an untrusted address. State is final before it,
     ///      so a payer re-entering from the refund hook can neither open a second dispute nor settle.
+    function test_dispute_storesAgreementURI() public {
+        AuthCaptureEscrow.PaymentInfo memory paymentInfo = _authorize();
+        bytes32 paymentHash = _hash(paymentInfo);
+        _dispute(paymentInfo, AMOUNT);
+
+        (, , , , , , , string memory agreementURI) = ca.payments(paymentHash);
+        assertEq(agreementURI, AGREEMENT_URI);
+    }
+
+    /// @dev A payer without our SDK may have nothing to pin: the dispute still opens, the jurors then
+    ///      rely on evidence only.
+    function test_dispute_acceptsEmptyAgreementURI() public {
+        AuthCaptureEscrow.PaymentInfo memory paymentInfo = _authorize();
+        bytes32 paymentHash = _hash(paymentInfo);
+
+        vm.deal(payer, 1 ether);
+        vm.prank(payer);
+        uint256 disputeID = ca.dispute{value: ARBITRATION_COST}(
+            paymentHash,
+            AMOUNT,
+            ""
+        );
+
+        assertEq(ca.getCaseData(disputeID).agreementURI, "");
+        assertEq(
+            uint256(_status(paymentInfo)),
+            uint256(KlerosCaptureAuthorizer.Status.Disputed)
+        );
+    }
+
     function test_dispute_reentrancyFromFeeRefundIsHarmless() public {
         ReentrantPayer reentrantPayer = new ReentrantPayer();
         token.mint(address(reentrantPayer), AMOUNT);
@@ -1092,7 +1261,7 @@ contract KlerosCaptureAuthorizerTest is Test {
             value: ARBITRATION_COST + 0.1 ether
         }(ca, paymentHash, AMOUNT);
 
-        assertEq(reentrantPayer.failures(), 3, "every re-entry must revert");
+        assertEq(reentrantPayer.failures(), 4, "every re-entry must revert");
         assertEq(
             address(reentrantPayer).balance,
             0.1 ether,
@@ -1663,6 +1832,8 @@ contract KlerosCaptureAuthorizerTest is Test {
             uint256(KlerosCaptureAuthorizer.Status.Disputed)
         );
         assertEq(data.ruling, 0);
+        assertEq(data.agreementURI, AGREEMENT_URI);
+        assertEq(data.salt, bytes32(paymentInfo.salt));
 
         arbitrator.giveRuling(ca, disputeID, RULING_PAYER);
         data = ca.getCaseData(disputeID);
@@ -1671,6 +1842,42 @@ contract KlerosCaptureAuthorizerTest is Test {
             uint256(KlerosCaptureAuthorizer.Status.Voided)
         );
         assertEq(data.ruling, RULING_PAYER);
+        assertEq(
+            data.agreementURI,
+            AGREEMENT_URI,
+            "URI must outlive the ruling"
+        );
+    }
+
+    /// @dev With our SDK the salt is the keccak256 of the agreement. The Court gets it back as bytes32,
+    ///      the same form a juror obtains by hashing the linked file.
+    function test_getCaseData_returnsAgreementHashAsSalt() public {
+        bytes32 agreementHash = keccak256(
+            '{"resource":{"url":"https://api.example/report"},"accepts":[]}'
+        );
+        AuthCaptureEscrow.PaymentInfo memory paymentInfo = _paymentInfo();
+        paymentInfo.salt = uint256(agreementHash);
+        ca.authorize(
+            paymentInfo,
+            AMOUNT,
+            address(collector),
+            _sign(paymentInfo)
+        );
+        uint256 disputeID = _dispute(paymentInfo, AMOUNT);
+
+        KlerosCaptureAuthorizer.CaseData memory data = ca.getCaseData(
+            disputeID
+        );
+        assertEq(data.salt, agreementHash);
+        assertEq(
+            uint256(data.salt),
+            ca.getPaymentInfo(data.paymentHash).salt,
+            "case salt must be the stored PaymentInfo.salt"
+        );
+        assertTrue(
+            data.salt != data.paymentHash,
+            "salt is not the payment hash"
+        );
     }
 
     function test_getCaseData_revert_unknownDispute() public {

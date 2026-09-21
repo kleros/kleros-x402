@@ -33,6 +33,7 @@ contract KlerosCaptureAuthorizer is IArbitrableV2 {
         uint120 lockedRefundAmount; // The cumulative amount the merchant locked for refund to the payer: can only grow, paid out at settlement.
         uint256 disputeID; // The dispute ID on the arbitrator side.
         uint256 ruling; // The ruling given by the arbitrator.
+        string agreementURI; // The IPFS URI of the agreement the payer pinned at dispute time; empty if none.
     }
 
     /// @dev Everything a juror needs about a dispute, keyed by the arbitrator-side dispute ID. Returned as a
@@ -48,6 +49,8 @@ contract KlerosCaptureAuthorizer is IArbitrableV2 {
         uint48 disputeWindowEnd; // The timestamp at which the dispute window closed.
         Status status; // The current status of the payment.
         uint256 ruling; // The ruling given by the arbitrator, if any.
+        string agreementURI; // The IPFS URI of the agreement the payer pinned at dispute time; empty if none.
+        bytes32 salt; // `PaymentInfo.salt`, as bytes32 so the Court renders it as hex. With our SDK: the keccak256 of the agreement.
     }
 
     // ************************************* //
@@ -89,6 +92,11 @@ contract KlerosCaptureAuthorizer is IArbitrableV2 {
     /// @param _paymentHash The escrow hash of the payment.
     /// @param _amount The amount captured.
     event CapturedUnchallenged(bytes32 indexed _paymentHash, uint120 _amount);
+
+    /// @notice Emitted when the payer releases the payment to the merchant before the dispute window ends.
+    /// @param _paymentHash The escrow hash of the payment.
+    /// @param _amount The amount captured.
+    event PayerAccepted(bytes32 indexed _paymentHash, uint120 _amount);
 
     /// @notice Emitted when the payer opens a dispute.
     /// @dev Kept alongside the Kleros `DisputeRequest` event as convenience to keep the per-payment event stream filterable by hash.
@@ -221,33 +229,38 @@ contract KlerosCaptureAuthorizer is IArbitrableV2 {
             DisputeWindowOpen()
         );
 
-        payment.status = Status.Captured;
-        uint120 amount = payment.authorizedAmount - payment.lockedRefundAmount;
+        uint120 amount = _captureFunds(_paymentHash);
         emit CapturedUnchallenged(_paymentHash, amount);
+    }
 
-        AuthCaptureEscrow.PaymentInfo memory paymentInfo = paymentInfos[
-            _paymentHash
-        ];
-        escrow.capture(
-            paymentInfo,
-            amount,
-            _feeAmount(paymentInfo, amount),
-            _feeReceiver(paymentInfo)
+    /// @notice Lets the payer release the payment to the merchant before the dispute window ends,
+    ///         e.g. once the work was delivered. Waives the right to dispute.
+    /// @dev Same settlement as `captureIfUnchallenged`, which anyone can call once the window has closed.
+    /// @param _paymentHash The escrow hash of the payment, as returned by `escrow.getHash`.
+    function payerAccept(bytes32 _paymentHash) external {
+        require(msg.sender == paymentInfos[_paymentHash].payer, PayerOnly());
+
+        Payment storage payment = payments[_paymentHash];
+        require(
+            payment.status == Status.Authorized,
+            PaymentNotInState(Status.Authorized, payment.status)
         );
-        // Pay out any concession the merchant recorded during the window.
-        if (payment.lockedRefundAmount > 0) {
-            escrow.void(paymentInfo);
-        }
+
+        uint120 amount = _captureFunds(_paymentHash);
+        emit PayerAccepted(_paymentHash, amount);
     }
 
     /// @notice Opens a dispute over the specified amount. Payer-only and only while the dispute window is open.
     /// @dev The payer funds the arbitration cost via msg.value; any overpayment is refunded.
     /// @param _paymentHash The escrow hash of the payment, as returned by `escrow.getHash`.
     /// @param _disputedAmount The amount the payer claims back; anything above `maxDisputable()` is clamped to it.
+    /// @param _agreementURI The IPFS URI of the agreement the payer pins for the jurors: the seller's 402 response,
+    ///        whose hash our SDK puts in `PaymentInfo.salt`. May be empty; the jurors then rely on evidence only.
     /// @return disputeID The dispute ID on the arbitrator side.
     function dispute(
         bytes32 _paymentHash,
-        uint120 _disputedAmount
+        uint120 _disputedAmount,
+        string calldata _agreementURI
     ) external payable returns (uint256 disputeID) {
         AuthCaptureEscrow.PaymentInfo memory paymentInfo = paymentInfos[
             _paymentHash
@@ -280,6 +293,7 @@ contract KlerosCaptureAuthorizer is IArbitrableV2 {
 
         payment.status = Status.Disputed;
         payment.disputedAmount = disputedAmount;
+        payment.agreementURI = _agreementURI;
 
         disputeID = arbitrator.createDispute{value: cost}(
             RULING_OPTIONS,
@@ -467,13 +481,41 @@ contract KlerosCaptureAuthorizer is IArbitrableV2 {
             lockedRefundAmount: payment.lockedRefundAmount,
             disputeWindowEnd: payment.disputeWindowEnd,
             status: payment.status,
-            ruling: payment.ruling
+            ruling: payment.ruling,
+            agreementURI: payment.agreementURI,
+            salt: bytes32(paymentInfo.salt)
         });
     }
 
     // ************************************* //
     // *            Internal               * //
     // ************************************* //
+
+    /// @dev Captures everything the merchant did not concede to the merchant and voids the concession,
+    ///      if any, back to the payer. Used when nobody disputed the payment.
+    /// @param _paymentHash The escrow hash of the payment.
+    /// @return amount The amount captured to the merchant.
+    function _captureFunds(
+        bytes32 _paymentHash
+    ) internal returns (uint120 amount) {
+        Payment storage payment = payments[_paymentHash];
+        payment.status = Status.Captured;
+        amount = payment.authorizedAmount - payment.lockedRefundAmount;
+
+        AuthCaptureEscrow.PaymentInfo memory paymentInfo = paymentInfos[
+            _paymentHash
+        ];
+        escrow.capture(
+            paymentInfo,
+            amount,
+            _feeAmount(paymentInfo, amount),
+            _feeReceiver(paymentInfo)
+        );
+        // Pay out any concession the merchant recorded during the window.
+        if (payment.lockedRefundAmount > 0) {
+            escrow.void(paymentInfo);
+        }
+    }
 
     /// @dev Computes the fee submitted with a capture: the payment's `minFeeBps` applied to the captured
     ///      amount, rounded down as the escrow does. The contract takes no fee of its own.
