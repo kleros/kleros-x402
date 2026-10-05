@@ -1,0 +1,25 @@
+{
+  "title": "x402 escrow: refund the payer or pay the merchant?",
+  "description": "The payer disputed x402 escrow payment {{paymentHash}}.\n\n**The payer**: {{payer}}\n\n**The merchant**: {{receiver}}\n\n**The token**: {{token}}\n\n**The authorized amount**: {{authorizedAmount}}\n\n**The disputed amount**: {{disputedAmount}}\n\n**The locked refund**: {{lockedRefundAmount}}, conceded by the merchant before the dispute and paid to the payer whatever the ruling.\n\nAll amounts are in the token's base unit.\n\n**The agreement**: {{#agreementURI}}[agreement file](https://cdn.kleros.link{{agreementURI}}), pinned by the payer when opening the dispute.{{/agreementURI}}{{^agreementURI}}no file was linked, establish the offer from the evidence.{{/agreementURI}}\n\n**The agreement hash**, the payment's salt: {{salt}}",
+  "question": "Should the payer receive the disputed amount, or should the merchant?",
+  "answers": [
+    {
+      "id": "0x1",
+      "title": "Refund the payer",
+      "description": "The resource was not delivered, or the delivery materially differs from the offer. The disputed amount goes back to the payer."
+    },
+    {
+      "id": "0x2",
+      "title": "Pay the merchant",
+      "description": "The delivery satisfies the offer, or the payer did not prove otherwise. The disputed amount goes to the merchant."
+    }
+  ],
+  "aliases": {
+    "Payer": "{{payer}}",
+    "Merchant": "{{receiver}}"
+  },
+  "policyURI": "/ipfs/QmUXtVE2gGzWtYYhM68XTQMcDDfYFXkgTgeeVUXDbQwUnA",
+  "arbitratorChainID": "421614",
+  "arbitratorAddress": "0xE8442307d36e9bf6aB27F1A009F95CE8E11C3479",
+  "version": "1.0"
+}

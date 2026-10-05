@@ -1,0 +1,31 @@
+[
+  {
+    "type": "abi/call",
+    "abi": "function getCaseData(uint256 _disputeID) view returns ((bytes32 paymentHash, address payer, address receiver, address token, uint120 authorizedAmount, uint120 disputedAmount, uint120 lockedRefundAmount, uint48 disputeWindowEnd, uint8 status, uint256 ruling, string agreementURI, bytes32 salt) data)",
+    "address": "{{arbitrableAddress}}",
+    "functionName": "getCaseData",
+    "args": ["{{disputeID}}"],
+    "seek": [
+      "paymentHash",
+      "payer",
+      "receiver",
+      "token",
+      "authorizedAmount",
+      "disputedAmount",
+      "lockedRefundAmount",
+      "agreementURI",
+      "salt"
+    ],
+    "populate": [
+      "paymentHash",
+      "payer",
+      "receiver",
+      "token",
+      "authorizedAmount",
+      "disputedAmount",
+      "lockedRefundAmount",
+      "agreementURI",
+      "salt"
+    ]
+  }
+]
