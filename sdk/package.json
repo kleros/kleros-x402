@@ -1,0 +1,36 @@
+{
+  "name": "kleros-x402-sdk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Kleros dispute resolution for x402 auth-capture payments.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kleros/kleros-x402.git",
+    "directory": "sdk"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "test": "node --test \"test/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@x402/core": "^2.28.0",
+    "@x402/evm": "^2.28.0",
+    "viem": "^2.57.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.8.0"
+  }
+}
