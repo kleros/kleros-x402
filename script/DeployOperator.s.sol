@@ -14,7 +14,7 @@ import {KlerosCaptureAuthorizer} from "../src/KlerosCaptureAuthorizer.sol";
 /// @dev forge script script/DeployOperator.s.sol --rpc-url $ARBITRUM_SEPOLIA_RPC --account <name> --broadcast
 contract DeployOperator is Script {
     // Deployment inputs.
-    address constant ESCROW = 0x0000000000000000000000000000000000000000; // AuthCaptureEscrow copy on Arbitrum Sepolia.
+    address constant ESCROW = 0x3e1e17725899ce96AF5C95b9f95a9c74588cf622; // Our AuthCaptureEscrow deployment on Arbitrum Sepolia.
     uint256 constant DISPUTE_WINDOW = 3 days;
     uint256 constant ARBITRATION_BUFFER = 7 days;
     bool constant REFUSE_TO_ARBITRATE_TO_MERCHANT = true;
