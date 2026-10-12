@@ -8,7 +8,9 @@
     "skipLibCheck": true,
     "strict": true,
     "resolveJsonModule": true,
-    "types": ["node"]
+    "types": ["node"],
+    // The linked @x402 packages must resolve their express types here, not in the x402 workspace.
+    "preserveSymlinks": true
   },
   "include": ["**/*.ts"]
 }
