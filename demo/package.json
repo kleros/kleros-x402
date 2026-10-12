@@ -1,0 +1,17 @@
+{
+  "name": "kleros-x402-demo",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "build:x402": "./build-x402.sh",
+    "test": "node --test \"test/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@x402/core": "file:../lib/x402/typescript/packages/core",
+    "@x402/evm": "file:../lib/x402/typescript/packages/mechanisms/evm",
+    "@x402/express": "file:../lib/x402/typescript/packages/http/express"
+  }
+}

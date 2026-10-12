@@ -1,0 +1,39 @@
+diff --git a/typescript/packages/mechanisms/evm/src/auth-capture/constants.ts b/typescript/packages/mechanisms/evm/src/auth-capture/constants.ts
+index ccc3f87..697c2a0 100644
+--- a/typescript/packages/mechanisms/evm/src/auth-capture/constants.ts
++++ b/typescript/packages/mechanisms/evm/src/auth-capture/constants.ts
+@@ -1,4 +1,4 @@
+-import { getAddress, isAddress, isAddressEqual, keccak256, toBytes } from "viem";
++import { getAddress, isAddress, isAddressEqual, keccak256, toBytes, zeroAddress } from "viem";
+ 
+ // Scheme identifier for the auth-capture payment scheme.
+ export const AUTH_CAPTURE_SCHEME = "auth-capture" as const;
+@@ -60,6 +60,18 @@ export const AUTH_CAPTURE_DEPLOYMENT_V1_1: AuthCaptureDeployment = {
+   operatorRefundCollector: OPERATOR_REFUND_COLLECTOR_V1_1_ADDRESS,
+ };
+ 
++/**
++ * Kleros x402 PoC, test build only. commerce-payments v1.1 deployed by the PoC on Arbitrum Sepolia,
++ * where the canonical escrow does not exist. Only the escrow and the ERC-3009 collector are deployed.
++ */
++export const KLEROS_ARBITRUM_SEPOLIA_DEPLOYMENT: AuthCaptureDeployment = {
++  version: "v1.1",
++  escrow: "0x3e1e17725899ce96AF5C95b9f95a9c74588cf622",
++  eip3009Collector: "0xE96E9f608fE62a8A8A29cf1B9BBAE33799DaF8e3",
++  permit2Collector: zeroAddress,
++  operatorRefundCollector: zeroAddress,
++};
++
+ /**
+  * Resolve the commerce-payments deployment from optional `extra.authCaptureEscrow`.
+  * Absent or the v1.1 escrow selects v1.1; the v1.0 escrow selects v1.0.
+@@ -84,6 +96,9 @@ export function resolveAuthCaptureDeployment(escrow?: string): AuthCaptureDeploy
+   if (isAddressEqual(normalized, AUTH_CAPTURE_ESCROW_V1_0_ADDRESS)) {
+     return AUTH_CAPTURE_DEPLOYMENT_V1_0;
+   }
++  if (isAddressEqual(normalized, KLEROS_ARBITRUM_SEPOLIA_DEPLOYMENT.escrow)) {
++    return KLEROS_ARBITRUM_SEPOLIA_DEPLOYMENT;
++  }
+   return undefined;
+ }
+ 

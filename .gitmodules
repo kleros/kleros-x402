@@ -1,3 +1,7 @@
 [submodule "lib/commerce-payments"]
 	path = lib/commerce-payments
 	url = https://github.com/base/commerce-payments
+[submodule "lib/x402"]
+	path = lib/x402
+	url = https://github.com/x402-foundation/x402
+	shallow = true
