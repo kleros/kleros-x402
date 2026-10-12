@@ -10,6 +10,8 @@
     "typecheck": "tsc --noEmit",
     "facilitator": "tsx facilitator.ts",
     "merchant": "tsx merchant.ts",
+    "buy": "tsx buy.ts",
+    "settle": "tsx settle.ts",
     "test": "node --test \"test/**/*.test.ts\""
   },
   "dependencies": {
@@ -19,7 +21,7 @@
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "kleros-x402-sdk": "file:../sdk",
-    "viem": "^2.57.3"
+    "viem": "2.57.3"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",

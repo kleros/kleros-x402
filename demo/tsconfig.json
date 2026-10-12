@@ -12,5 +12,8 @@
     // The linked @x402 packages must resolve their express types here, not in the x402 workspace.
     "preserveSymlinks": true
   },
+  // First, so TypeScript meets x402 main's @x402 packages before the SDK's published ones: both are
+  // versioned 2.28.0, TypeScript keeps the first copy of a version, and main's is the superset.
+  "files": ["facilitator.ts"],
   "include": ["**/*.ts"]
 }
