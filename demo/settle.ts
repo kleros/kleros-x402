@@ -5,7 +5,7 @@ import { createPublicClient, createWalletClient, http, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { arbitrumSepolia } from "viem/chains";
 
-const USAGE = `usage: npm run settle -- <action> <paymentHash> [amount]
+const USAGE = `usage: npm run settle -- <action> <paymentHash> [amount]   amounts in the token's base units, 10000 = 0.01 USDC
   payment                   read the payment
   payerAccept               payer: release the payment to the merchant
   merchantRefund <amount>   merchant: raise the total refunded to <amount>
@@ -14,22 +14,17 @@ const USAGE = `usage: npm run settle -- <action> <paymentHash> [amount]
   executeRuling             anyone, for a ruling the arbitrator could not settle itself`;
 
 const [action, paymentHash, amount] = process.argv.slice(2);
-const key = action === "merchantRefund" ? process.env.MERCHANT_PRIVATE_KEY : process.env.BUYER_PRIVATE_KEY;
-const publicClient = createPublicClient({ chain: arbitrumSepolia, transport: http() });
-const kleros = klerosX402Client({
-  publicClient,
-  walletClient: createWalletClient({ account: privateKeyToAccount(key as Hex), chain: arbitrumSepolia, transport: http() }),
-});
-
 const hash = paymentHash as Hex;
-const actions: Record<string, () => Promise<unknown>> = {
-  payment: () => kleros.payment(hash),
-  payerAccept: () => kleros.payerAccept(hash),
-  merchantRefund: () => kleros.merchantRefund(hash, BigInt(amount)),
-  dispute: () =>
+
+type Client = ReturnType<typeof klerosX402Client>;
+const actions: Record<string, (kleros: Client) => Promise<unknown>> = {
+  payment: (kleros) => kleros.payment(hash),
+  payerAccept: (kleros) => kleros.payerAccept(hash),
+  merchantRefund: (kleros) => kleros.merchantRefund(hash, BigInt(amount)),
+  dispute: (kleros) =>
     kleros.dispute({ paymentHash: hash, disputedAmount: BigInt(amount), agreementDir: "./payments", pin: pinataPinner(process.env.PINATA_JWT!) }),
-  captureIfUnchallenged: () => kleros.captureIfUnchallenged(hash),
-  executeRuling: () => kleros.executeRuling(hash),
+  captureIfUnchallenged: (kleros) => kleros.captureIfUnchallenged(hash),
+  executeRuling: (kleros) => kleros.executeRuling(hash),
 };
 
 const run = actions[action];
@@ -38,8 +33,15 @@ if (!run || !paymentHash || (needsAmount && !amount)) {
   console.error(USAGE);
   process.exit(1);
 }
+
 async function main(): Promise<void> {
-  const result = await run();
+  const key = action === "merchantRefund" ? process.env.MERCHANT_PRIVATE_KEY : process.env.BUYER_PRIVATE_KEY;
+  const publicClient = createPublicClient({ chain: arbitrumSepolia, transport: http() });
+  const kleros = klerosX402Client({
+    publicClient,
+    walletClient: createWalletClient({ account: privateKeyToAccount(key as Hex), chain: arbitrumSepolia, transport: http() }),
+  });
+  const result = await run(kleros);
   // The one-call writes return the transaction hash; wait for it and report its status.
   if (typeof result === "string") {
     const receipt = await publicClient.waitForTransactionReceipt({ hash: result as Hex });

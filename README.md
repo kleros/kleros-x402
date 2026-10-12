@@ -63,11 +63,35 @@ All contracts are deployed and verified on Arbitrum Sepolia, interacting with th
 
 ### Rails
 
-The merchant server and the facilitator are x402's own, run with the operator on the facilitator's custom-operator allowlist. Two things about running them for the demo:
+The merchant server and the facilitator are x402's own example apps, [demo/merchant.ts](demo/merchant.ts) and [demo/facilitator.ts](demo/facilitator.ts), copied from the pinned x402 submodule with Arbitrum Sepolia as the network. The merchant's route is built with the SDK; the facilitator has the operator on its custom-operator allowlist. The buyer is the SDK's fetch wrapper, run by [demo/buy.ts](demo/buy.ts), and the calls while the payment is in escrow are made by [demo/settle.ts](demo/settle.ts). Three things about running them for the demo:
 
-- Their auth-capture entry points landed on x402 `main` with PR #3203 (merged 2026-10-06) and are unreleased: `@x402/evm` 2.28.0 ships the client only. Both run `@x402/evm` built from `main`.
-- They only know Coinbase's canonical escrow addresses, from the table in `src/auth-capture/constants.ts`. On the test network the build adds our escrow and collector to that table; otherwise the server rewrites `authCaptureEscrow` to the canonical address and the facilitator checks the payment against contracts with no code on Arbitrum Sepolia. In production, against the canonical escrow, nothing is added.
-- The facilitator verifies a custom operator by simulating the `authorize` call, so its signer needs an RPC that supports `eth_simulateV1`. Arbitrum's public endpoint does.
+- Their auth-capture entry points landed on x402 `main` with PR #3203 (merged 2026-10-06) and are unreleased: `@x402/evm` 2.28.0 ships the client only. [demo/build-x402.sh](demo/build-x402.sh) builds `@x402/core`, `@x402/extensions`, `@x402/evm` and `@x402/express` from the submodule, pinned at `7f2b2f1`.
+- They only know Coinbase's canonical escrow addresses, from the table in `src/auth-capture/constants.ts`; otherwise the server rewrites `authCaptureEscrow` to the canonical address and the facilitator checks the payment against contracts with no code on Arbitrum Sepolia. The build applies [demo/x402-arbitrum-sepolia-escrow.patch](demo/x402-arbitrum-sepolia-escrow.patch), which adds our escrow and collector to that table, and reverts it afterwards. In production, against the canonical escrow, nothing is patched.
+- The facilitator verifies a custom operator by simulating the `authorize` call, so its signer needs an RPC that supports `eth_simulateV1`. Arbitrum's public endpoint does. Its gas cap for that call is 1,000,000; `authorize` uses about 380,000 in the Foundry suite.
+
+### Running it
+
+Copy `demo/.env.example` to `demo/.env` and fill it in: the facilitator's key, the merchant's address and key, the buyer's key, and a Pinata JWT for disputes. The facilitator pays gas for `authorize`, the buyer pays in USDC plus the arbitration cost in ETH, the merchant pays gas for refunds. Then, from `demo/`, each in its own terminal and in this order:
+
+```bash
+npm run facilitator
+```
+
+```bash
+npm run merchant
+```
+
+```bash
+npm run buy
+```
+
+`buy` prints the payment hash. Then, while the payment is in escrow:
+
+```bash
+npm run settle -- <action> <paymentHash> [amount]
+```
+
+where `action` is `payment` to read it, `payerAccept`, `merchantRefund <amount>`, `dispute <amount>`, `captureIfUnchallenged` or `executeRuling`. Amounts are in the token's base units, as in the 402: the demo's price of 0.01 USDC is `10000`. `dispute` pins the agreement from `demo/payments/` and prints the Court case.
 
 ## Repository layout
 
@@ -75,6 +99,8 @@ The merchant server and the facilitator are x402's own, run with the operator on
 - [template/](template/): dispute template, data mappings and the juror policy.
 - [script/](script/): the deploy scripts.
 - [sdk/](sdk/): the TypeScript SDK for merchants and buyers, with its own [README](sdk/README.md).
+- [demo/](demo/): the rails of the demo, x402's facilitator and merchant server built from `main`, and the buyer and settlement scripts on the SDK.
+- [lib/](lib/): the submodules, commerce-payments and x402.
 
 ## Setup
 
@@ -101,7 +127,13 @@ forge test
 ```
 
 ```bash
-cd sdk && npm install && npm test
+cd sdk && npm install && npm test && npm run build
+```
+
+The demo links the SDK's build. Its own build compiles the x402 packages from the submodule, about a minute the first time:
+
+```bash
+cd demo && npm run build:x402 && npm install && npm test
 ```
 
 ## Reproducing the deployment
