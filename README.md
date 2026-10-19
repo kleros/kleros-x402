@@ -49,7 +49,7 @@ All contracts are deployed and verified on Arbitrum Sepolia, interacting with th
 
 ## Demo
 
-*To be run.* Every settlement path is to run on the real testnet court, against the contracts above, through the official x402 merchant server and facilitator built from x402 `main`:
+Every settlement path ran on the real testnet court, against the contracts above, through the official x402 merchant server and facilitator built from x402 `main`:
 
 - **Unchallenged capture**: paid, window passes, `captureIfUnchallenged` pays the merchant.
 - **Early release**: paid, `payerAccept` pays the merchant inside the window.
@@ -57,9 +57,15 @@ All contracts are deployed and verified on Arbitrum Sepolia, interacting with th
 - **Full dispute**: paid, disputed in full, ruled at the Court, executed.
 - **Partial dispute**: paid, part disputed, remainder captured at dispute time, the rest ruled.
 
-| Case  | Scenario | Ruling |
-| ----- | -------- | ------ |
-| *tbd* |          |        |
+| Scenario | Payment | Settlement | Case | Ruling |
+| -------- | ------- | ---------- | ---- | ------ |
+| Unchallenged capture | `0xd595…7080` | `captureIfUnchallenged` [`0x3c6d…5384`](https://sepolia.arbiscan.io/tx/0x3c6d0fdac327ac78fd16faba08f88eddcb66c025eea5c6a5675001e2a6ed5384) | | |
+| Early release | `0xafe9…af4b` | `payerAccept` [`0x8a20…17a5`](https://sepolia.arbiscan.io/tx/0x8a20d27353e6b01da146bafd50b0736286d8b9b37ed75f5574ca63925f0517a5) | | |
+| Full concession | `0xeeef…b637` | `merchantRefund` [`0x5e83…dd45`](https://sepolia.arbiscan.io/tx/0x5e8392f7e58e20e14474690ed6e9d7232a0128113ab1882615dbca22d983dd45) | | |
+| Full dispute | `0x678a…069b` | `dispute` [`0xe8e7…764d`](https://sepolia.arbiscan.io/tx/0xe8e7ff650a61eb919e70d19fd7ad7fcf8b8a8a9f9b4ca383db7f1bcc0851764d) | [191](https://v2-testnet.kleros.builders/#/cases/191/overview) | Pay the merchant, executed in [`0x8750…e354`](https://sepolia.arbiscan.io/tx/0x87506acf7d7552ae7197f632b00e6a6cae29cec8dd5aab8b6a737c7910bde354) |
+| Partial dispute | `0x2adc…4e16` | `dispute` [`0x99d2…118a`](https://sepolia.arbiscan.io/tx/0x99d2a0a89ef62069d0756aa8fd89e570fdeae1cd757e2654da4952057650118a), 5000 of 10000 captured at once | [192](https://v2-testnet.kleros.builders/#/cases/192/overview) | Refuse to arbitrate, paid to the merchant by the operator's rule, executed in [`0xb133…d645`](https://sepolia.arbiscan.io/tx/0xb133f4715ae0ac5bac0327cfefa18abc2b7550a2547cfab9d3ab603f4d63d645) |
+
+Both cases were decided by the same juror, an AI juror holding all three seats. Its refuse-to-arbitrate vote on 192 came from a failed read of the template on its side, documented in its own justification; the case page itself rendered throughout.
 
 ### Rails
 
