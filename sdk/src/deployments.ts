@@ -15,7 +15,7 @@ export interface KlerosX402Deployment {
 const deployments: Record<string, KlerosX402Deployment> = {
   // Arbitrum Sepolia, the test network. The canonical escrow is not deployed there, so this is our own deployment of it.
   "eip155:421614": {
-    operator: "0x729CeC589286515A9bF28Fcdf0e71D2f94fAf674",
+    operator: "0x6B4E7055e0aDdB5F31A39b5f2719da843b1Bc4c9",
     authCaptureEscrow: "0x3e1e17725899ce96AF5C95b9f95a9c74588cf622",
     tokenCollector: "0xE96E9f608fE62a8A8A29cf1B9BBAE33799DaF8e3",
     courtUrl: "https://v2-testnet.kleros.builders",

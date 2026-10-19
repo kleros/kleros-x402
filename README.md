@@ -36,13 +36,13 @@ A payment ends in one of four ways: the dispute window passes and the merchant i
 
 ## Testnet deployment
 
-All contracts are deployed and verified on Arbitrum Sepolia, interacting with the Kleros v2 testnet and using the Agentic Commerce Court (court 8), 3 jurors per dispute, classic dispute kit, arbitration cost 0.00081 ETH. The operator's dispute window is 3 days and its arbitration buffer 7 days.
+All contracts are deployed and verified on Arbitrum Sepolia, interacting with the Kleros v2 testnet and using the Agentic Commerce Court (court 8), 3 jurors per dispute, classic dispute kit, arbitration cost 0.00081 ETH. The operator's dispute window is 10 minutes, a test value so that every demo path completes within the hour; a real deployment gives the payer days. Its arbitration buffer is 7 days.
 
 | Contract                                                      | Address                                      |
 | ------------------------------------------------------------- | -------------------------------------------- |
 | AuthCaptureEscrow v1.1 (our deployment, their code untouched) | `0x3e1e17725899ce96AF5C95b9f95a9c74588cf622` |
 | ERC3009PaymentCollector                                       | `0xE96E9f608fE62a8A8A29cf1B9BBAE33799DaF8e3` |
-| KlerosCaptureAuthorizer (the operator)                        | `0x729CeC589286515A9bF28Fcdf0e71D2f94fAf674` |
+| KlerosCaptureAuthorizer (the operator)                        | `0x6B4E7055e0aDdB5F31A39b5f2719da843b1Bc4c9` |
 | Payment token (Circle testnet USDC)                           | `0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d` |
 | Kleros KlerosCore                                             | `0xE8442307d36e9bf6aB27F1A009F95CE8E11C3479` |
 | Kleros DisputeTemplateRegistry                                | `0xe763d31Cb096B4bc7294012B78FC7F148324ebcb` |
