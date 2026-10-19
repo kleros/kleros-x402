@@ -81,6 +81,16 @@ npm run facilitator
 npm run merchant
 ```
 
+Then one scenario per call, each a purchase followed by its settlement path:
+
+```bash
+npm run demo -- <scenario>
+```
+
+`capture` waits for the window to close and captures; `release` calls `payerAccept`; `refund` refunds everything; `dispute` and `partial` open a case over the full amount or half, pinning the agreement, and print the case id and its Court link.
+
+The steps are also available one at a time:
+
 ```bash
 npm run buy
 ```

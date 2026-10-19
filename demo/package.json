@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "facilitator": "tsx facilitator.ts",
     "merchant": "tsx merchant.ts",
+    "demo": "tsx run.ts",
     "buy": "tsx buy.ts",
     "settle": "tsx settle.ts",
     "test": "node --test \"test/**/*.test.ts\""
