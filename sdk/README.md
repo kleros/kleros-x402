@@ -10,7 +10,7 @@ Kleros dispute resolution for x402 auth-capture payments. The merchant's 402 nam
 
 The merchant server, the facilitator and the escrow are x402's and run unchanged; the facilitator must have the operator on its custom-operator allowlist. Supported network contract addresses are in `src/deployments.ts`.
 
-**Note:** As of `@x402/evm` 2.28.0 the auth-capture server and facilitator are unreleased and run from a build of x402 `main`.
+**Note:** The auth-capture server and facilitator ship from `@x402/evm` 2.29.0.
 
 ## Build and test
 

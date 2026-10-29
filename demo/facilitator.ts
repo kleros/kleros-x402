@@ -1,5 +1,5 @@
 /**
- * Copied from x402 examples/typescript/facilitator/auth-capture/index.ts at 7f2b2f1 (lib/x402).
+ * Copied from x402 examples/typescript/facilitator/auth-capture/index.ts at e4a0868, the 2.29.0 release (lib/x402).
  * Only edit: Arbitrum Sepolia instead of Base Sepolia.
  */
 /**

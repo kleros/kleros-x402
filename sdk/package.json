@@ -25,8 +25,8 @@
     "test": "node --test \"test/**/*.test.ts\""
   },
   "dependencies": {
-    "@x402/core": "^2.28.0",
-    "@x402/evm": "^2.28.0",
+    "@x402/core": "^2.29.0",
+    "@x402/evm": "^2.29.0",
     "viem": "^2.57.3"
   },
   "devDependencies": {

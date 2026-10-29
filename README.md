@@ -49,7 +49,7 @@ All contracts are deployed and verified on Arbitrum Sepolia, interacting with th
 
 ## Demo
 
-Every settlement path ran on the real testnet court, against the contracts above, through the official x402 merchant server and facilitator built from x402 `main`:
+Every settlement path ran on the real testnet court, against the contracts above, through the official x402 merchant server and facilitator, built from x402 `main` before their 2.29.0 release:
 
 - **Unchallenged capture**: paid, window passes, `captureIfUnchallenged` pays the merchant.
 - **Early release**: paid, `payerAccept` pays the merchant inside the window.
@@ -71,7 +71,7 @@ Both cases were decided by the same juror, an AI juror holding all three seats. 
 
 The merchant server and the facilitator are x402's own example apps, [demo/merchant.ts](demo/merchant.ts) and [demo/facilitator.ts](demo/facilitator.ts), copied from the pinned x402 submodule with Arbitrum Sepolia as the network. The merchant's route is built with the SDK; the facilitator has the operator on its custom-operator allowlist. The buyer is the SDK's fetch wrapper, run by [demo/buy.ts](demo/buy.ts), and the calls while the payment is in escrow are made by [demo/settle.ts](demo/settle.ts). Three things about running them for the demo:
 
-- Their auth-capture entry points landed on x402 `main` with PR #3203 (merged 2026-10-06) and are unreleased: `@x402/evm` 2.28.0 ships the client only. [demo/build-x402.sh](demo/build-x402.sh) builds `@x402/core`, `@x402/extensions`, `@x402/evm` and `@x402/express` from the submodule, pinned at `7f2b2f1`.
+- Their auth-capture entry points shipped in `@x402/evm` 2.29.0 on 2026-10-28. The demo still builds `@x402/core`, `@x402/extensions`, `@x402/evm` and `@x402/express` from the submodule, pinned at the release commit `e4a0868`, with [demo/build-x402.sh](demo/build-x402.sh), because of the next point.
 - They only know Coinbase's canonical escrow addresses, from the table in `src/auth-capture/constants.ts`; otherwise the server rewrites `authCaptureEscrow` to the canonical address and the facilitator checks the payment against contracts with no code on Arbitrum Sepolia. The build applies [demo/x402-arbitrum-sepolia-escrow.patch](demo/x402-arbitrum-sepolia-escrow.patch), which adds our escrow and collector to that table, and reverts it afterwards. In production, against the canonical escrow, nothing is patched.
 - The facilitator verifies a custom operator by simulating the `authorize` call, so its signer needs an RPC that supports `eth_simulateV1`. Arbitrum's public endpoint does. Its gas cap for that call is 1,000,000; `authorize` uses about 380,000 in the Foundry suite.
 
@@ -115,7 +115,7 @@ where `action` is `payment` to read it, `payerAccept`, `merchantRefund <amount>`
 - [template/](template/): dispute template, data mappings and the juror policy.
 - [script/](script/): the deploy scripts.
 - [sdk/](sdk/): the TypeScript SDK for merchants and buyers, with its own [README](sdk/README.md).
-- [demo/](demo/): the rails of the demo, x402's facilitator and merchant server built from `main`, and the buyer and settlement scripts on the SDK.
+- [demo/](demo/): the rails of the demo, x402's facilitator and merchant server built from their 2.29.0 release, and the buyer and settlement scripts on the SDK.
 - [lib/](lib/): the submodules, commerce-payments and x402.
 
 ## Setup

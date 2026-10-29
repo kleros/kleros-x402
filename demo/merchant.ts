@@ -1,5 +1,5 @@
 /**
- * Copied from x402 examples/typescript/servers/auth-capture/custom-escrow.ts at 7f2b2f1 (lib/x402). Edits:
+ * Copied from x402 examples/typescript/servers/auth-capture/custom-escrow.ts at e4a0868, the 2.29.0 release (lib/x402). Edits:
  * Arbitrum Sepolia; the route's payment option comes from klerosX402PaymentOption instead of
  * CUSTOM_OPERATOR_ADDRESS; the scheme is registered collect-only, as our facilitator advertises no receiver authorizer.
  */
